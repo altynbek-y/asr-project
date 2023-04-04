@@ -52,7 +52,7 @@ Build the project:
 cmake --build .
 ```
 
-Run the test program from the `asr/build/bin/` directory:
+Run the test program from the (!) `asr/build/bin/` directory:
 
 ```bash
 cd .. # Ensure that the current working directory is set to the root asr folder.

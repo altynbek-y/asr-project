@@ -1,5 +1,6 @@
 #include "asr.h"
 
+#include <cmath>
 #include <string>
 #include <utility>
 
@@ -8,14 +9,23 @@ static const std::string Vertex_Shader_Source{R"( // NOLINT(cert-err58-cpp)
 
     attribute vec4 position;
     attribute vec4 color;
+    attribute vec4 texture_coordinates;
+
+    uniform bool texture_enabled;
+    uniform mat4 texture_transformation_matrix;
 
     uniform mat4 model_view_projection_matrix;
 
     varying vec4 fragment_color;
+    varying vec2 fragment_texture_coordinates;
 
     void main()
     {
         fragment_color = color;
+        if (texture_enabled) {
+            vec4 transformed_texture_coordinates = texture_transformation_matrix * vec4(texture_coordinates.st, 0.0, 1.0);
+            fragment_texture_coordinates = vec2(transformed_texture_coordinates);
+        }
 
         gl_Position = model_view_projection_matrix * position;
         gl_PointSize = 10.0;
@@ -25,11 +35,37 @@ static const std::string Vertex_Shader_Source{R"( // NOLINT(cert-err58-cpp)
 static const std::string Fragment_Shader_Source{R"( // NOLINT(cert-err58-cpp)
     #version 110
 
+    #define TEXTURING_MODE_ADDITION            0
+    #define TEXTURING_MODE_SUBTRACTION         1
+    #define TEXTURING_MODE_REVERSE_SUBTRACTION 2
+    #define TEXTURING_MODE_MODULATION          3
+    #define TEXTURING_MODE_DECALING            4
+
+    uniform bool texture_enabled;
+    uniform int texturing_mode;
+    uniform sampler2D texture_sampler;
+
     varying vec4 fragment_color;
+    varying vec2 fragment_texture_coordinates;
 
     void main()
     {
         gl_FragColor = fragment_color;
+
+        if (texture_enabled) {
+            if (texturing_mode == TEXTURING_MODE_ADDITION) {
+                gl_FragColor += texture2D(texture_sampler, fragment_texture_coordinates);
+            } else if (texturing_mode == TEXTURING_MODE_MODULATION) {
+                gl_FragColor *= texture2D(texture_sampler, fragment_texture_coordinates);
+            } else if (texturing_mode == TEXTURING_MODE_DECALING) {
+                vec4 texel_color = texture2D(texture_sampler, fragment_texture_coordinates);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, texel_color.rgb, texel_color.a);
+            } else if (texturing_mode == TEXTURING_MODE_SUBTRACTION) {
+                gl_FragColor -= texture2D(texture_sampler, fragment_texture_coordinates);
+            } else if (texturing_mode == TEXTURING_MODE_REVERSE_SUBTRACTION) {
+                gl_FragColor = texture2D(texture_sampler, fragment_texture_coordinates) - gl_FragColor;
+            }
+        }
     }
 )"};
 
@@ -50,7 +86,8 @@ static asr::GeometryPair generate_circle_geometry_data(
 
     vertices.push_back(asr::Vertex{
         0.0f, 0.0f, 0.0f,
-        color.r, color.g, color.b, color.a
+        color.r, color.g, color.b, color.a,
+        0.5f, 0.5f
     });
     if (geometry_type == asr::GeometryType::Points) {
         indices.push_back(0);
@@ -61,9 +98,12 @@ static asr::GeometryPair generate_circle_geometry_data(
 
     float x{cosf(angle) * radius};
     float y{sinf(angle) * radius};
+    float u{0.5f + cosf(angle) * 0.5f};
+    float v{1.0f - (0.5f + sinf(angle) * 0.5f)};
     vertices.push_back(asr::Vertex{
         x, y, 0.0f,
-        color.r, color.g, color.b, color.a
+        color.r, color.g, color.b, color.a,
+        u, v
     });
     if (geometry_type == asr::GeometryType::Points) {
         indices.push_back(1);
@@ -80,9 +120,12 @@ static asr::GeometryPair generate_circle_geometry_data(
         }
         float next_x{cosf(angle + angle_delta) * radius};
         float next_y{sinf(angle + angle_delta) * radius};
+        float next_u{0.5f + cosf(angle + angle_delta) * 0.5f};
+        float next_v{1.0f - (0.5f + sinf(angle + angle_delta) * 0.5f)};
         vertices.push_back(asr::Vertex{
             next_x, next_y, 0.0f,
-            color.r, color.g, color.b, color.a
+            color.r, color.g, color.b, color.a,
+            next_u, next_v
         });
         indices.push_back(vertices.size() - 1);
 
@@ -96,11 +139,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
 {
     using namespace asr;
 
-    create_window(500, 500, "Circle Test on ASR Version 1.1");
+    create_window(500U, 500U, "Circle Test on ASR Version 1.2");
     create_shader(Vertex_Shader_Source, Fragment_Shader_Source);
 
     float radius{0.5f};
-    unsigned int segments{10};
+    unsigned int segments{10U};
 
     auto [triangle_vertices, triangle_indices] = generate_circle_geometry_data(Triangles, radius, segments);
     auto triangles = create_geometry(Triangles, triangle_vertices, triangle_indices);
@@ -114,9 +157,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
     auto [vertices, vertex_indices] = generate_circle_geometry_data(Points, radius, segments, vertex_color);
     for (auto &vertex : vertices) { vertex.z -= 0.02f; }
     auto points = create_geometry(Points, vertices, vertex_indices);
+    auto image = read_image_file("data/images/uv_test.png");
+    auto texture = create_texture(image);
 
     prepare_for_rendering();
-    set_line_width(3);
+    set_line_width(3.0f);
 
     bool should_stop{false};
     while (!should_stop) {
@@ -124,18 +169,20 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
 
         prepare_to_render_frame();
 
+        set_texture_current(&texture);
         set_geometry_current(&triangles);
         render_current_geometry();
 
+        set_texture_current(nullptr);
         set_geometry_current(&lines);
         render_current_geometry();
-
         set_geometry_current(&points);
         render_current_geometry();
 
         finish_frame_rendering();
     }
 
+    destroy_texture(texture);
     destroy_geometry(triangles);
     destroy_geometry(lines);
     destroy_geometry(points);

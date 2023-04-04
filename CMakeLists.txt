@@ -21,5 +21,11 @@ target_link_libraries(hello_world_test ${ASR_LIBRARIES})
 add_executable(circle_test ${ASR_SOURCES} tests/circle_test.cpp)
 target_link_libraries(circle_test ${ASR_LIBRARIES})
 
+add_executable(ring_test ${ASR_SOURCES} tests/ring_test.cpp)
+target_link_libraries(ring_test ${ASR_LIBRARIES})
+
 add_executable(rectangle_test ${ASR_SOURCES} tests/rectangle_test.cpp)
 target_link_libraries(rectangle_test ${ASR_LIBRARIES})
+
+add_executable(sphere_test ${ASR_SOURCES} tests/sphere_test.cpp)
+target_link_libraries(sphere_test ${ASR_LIBRARIES})
